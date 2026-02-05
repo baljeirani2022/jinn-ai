@@ -102,16 +102,27 @@ async function sendToAI(prompt, provider = currentAI) {
       // Add to conversation history
       conversationHistory.push({ role: 'user', content: prompt });
 
+      // System instructions for file sharing
+      const systemInstructions = `IMPORTANT: When asked to share, attach, or send a file, you MUST output the FULL absolute file path on a separate line in this exact format:
+[SEND_FILE:/full/path/to/file.ext]
+
+For example:
+[SEND_FILE:/Users/basim/Desktop/image.png]
+
+After outputting the file path, you can add a brief description. Do NOT just describe the file - you must include the [SEND_FILE:path] tag for the file to actually be sent.
+
+`;
+
       // Build full prompt with conversation history
-      let fullPrompt = '';
+      let fullPrompt = systemInstructions;
       if (conversationHistory.length > 1) {
-        fullPrompt = 'Previous conversation:\n';
+        fullPrompt += 'Previous conversation:\n';
         conversationHistory.slice(0, -1).forEach(msg => {
           fullPrompt += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}\n`;
         });
         fullPrompt += '\nCurrent message:\n' + prompt;
       } else {
-        fullPrompt = prompt;
+        fullPrompt += prompt;
       }
 
       // Trim history if too long
@@ -220,6 +231,44 @@ async function sendWhatsAppReply(text) {
   }
 }
 
+// Function to send media (image/file) to WhatsApp
+async function sendWhatsAppMedia(mediaPath, caption = '') {
+  if (!isReady || !selfChatId) {
+    console.log('Cannot send media - not ready or no selfChatId');
+    return false;
+  }
+  try {
+    const chat = await client.getChatById(selfChatId);
+    const media = pkg.MessageMedia.fromFilePath(mediaPath);
+    await chat.sendMessage(media, { caption });
+    console.log('Sent media to WhatsApp:', mediaPath);
+    return true;
+  } catch (err) {
+    console.error('Failed to send WhatsApp media:', err);
+    return false;
+  }
+}
+
+// Function to send base64 image to WhatsApp
+async function sendWhatsAppBase64Image(base64Data, mimetype = 'image/png', caption = '') {
+  if (!isReady || !selfChatId) {
+    console.log('Cannot send image - not ready or no selfChatId');
+    return false;
+  }
+  try {
+    const chat = await client.getChatById(selfChatId);
+    // Remove data URL prefix if present
+    const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+    const media = new pkg.MessageMedia(mimetype, base64);
+    await chat.sendMessage(media, { caption });
+    console.log('Sent base64 image to WhatsApp');
+    return true;
+  } catch (err) {
+    console.error('Failed to send WhatsApp image:', err);
+    return false;
+  }
+}
+
 client.on('message_create', async (message) => {
   console.log('message_create event:', message.from, '->', message.to, ':', message.body?.substring(0, 30), 'hasMedia:', message.hasMedia);
 
@@ -290,6 +339,100 @@ client.on('message_create', async (message) => {
         return;
       }
 
+      // Send file command: /send <filepath>
+      if (text.toLowerCase().startsWith('/send')) {
+        const pathMatch = text.match(/\/send\s+(.+)/i);
+        if (!pathMatch) {
+          await sendWhatsAppReply('Usage: /send <filepath>\nExample: /send /Users/basim/Desktop/image.png');
+          return;
+        }
+
+        const filePath = pathMatch[1].trim();
+
+        if (!fs.existsSync(filePath)) {
+          await sendWhatsAppReply(`File not found: ${filePath}`);
+          return;
+        }
+
+        await sendWhatsAppReply(`Sending file: ${path.basename(filePath)}...`);
+
+        try {
+          const sent = await sendWhatsAppMedia(filePath, path.basename(filePath));
+          if (sent) {
+            io.emit('message', {
+              id: 'file-' + Date.now(),
+              body: `File sent: ${path.basename(filePath)}`,
+              timestamp: Math.floor(Date.now() / 1000),
+              fromMe: false,
+              type: 'chat',
+              provider: 'file'
+            });
+          } else {
+            await sendWhatsAppReply('Failed to send file');
+          }
+        } catch (err) {
+          console.error('Send file error:', err);
+          await sendWhatsAppReply(`Failed to send file: ${err.message}`);
+        }
+        return;
+      }
+
+      // Screenshot command: /screenshot <url>
+      if (text.toLowerCase().startsWith('/screenshot')) {
+        const urlMatch = text.match(/\/screenshot\s+(\S+)/i);
+        if (!urlMatch) {
+          await sendWhatsAppReply('Usage: /screenshot <url>\nExample: /screenshot https://google.com');
+          return;
+        }
+
+        let url = urlMatch[1];
+        // Add https if no protocol
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+          url = 'https://' + url;
+        }
+
+        await sendWhatsAppReply(`Taking screenshot of ${url}...`);
+        io.emit('ai-processing', { prompt: `Screenshot: ${url}`, provider: 'screenshot' });
+
+        try {
+          // Use puppeteer to take screenshot
+          const puppeteer = await import('puppeteer');
+          const browser = await puppeteer.default.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+          });
+          const page = await browser.newPage();
+          await page.setViewport({ width: 1280, height: 800 });
+          await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+          // Save screenshot
+          const screenshotPath = path.join(mediaDir, `screenshot-${Date.now()}.png`);
+          await page.screenshot({ path: screenshotPath, fullPage: false });
+          await browser.close();
+
+          console.log('Screenshot saved to:', screenshotPath);
+
+          // Send to WhatsApp
+          const sent = await sendWhatsAppMedia(screenshotPath, `Screenshot of ${url}`);
+          if (sent) {
+            io.emit('message', {
+              id: 'screenshot-' + Date.now(),
+              body: `Screenshot of ${url} sent!`,
+              timestamp: Math.floor(Date.now() / 1000),
+              fromMe: false,
+              type: 'chat',
+              provider: 'screenshot'
+            });
+          } else {
+            await sendWhatsAppReply('Failed to send screenshot');
+          }
+        } catch (err) {
+          console.error('Screenshot error:', err);
+          await sendWhatsAppReply(`Screenshot failed: ${err.message}`);
+        }
+        return;
+      }
+
       // Send to AI
       console.log(`Processing message with ${currentAI}...`);
       io.emit('ai-processing', { prompt: text, provider: currentAI });
@@ -298,8 +441,64 @@ client.on('message_create', async (message) => {
         const aiResponse = await sendToAI(text);
         console.log(`${currentAI} response:`, aiResponse.substring(0, 100));
 
-        // Send response back to WhatsApp
-        await sendWhatsAppReply(aiResponse);
+        // Check for [SEND_FILE:path] tag in response
+        const sendFileMatch = aiResponse.match(/\[SEND_FILE:([^\]]+)\]/);
+
+        // Also check for legacy image path patterns
+        const imagePathMatch = aiResponse.match(/(?:saved|screenshot|image|file).*?[:\s]+(\/[\/\w\-\.\s]+\.(?:png|jpg|jpeg|gif|webp))/i) ||
+                              aiResponse.match(/(\/Users\/[\/\w\-\.\s]+\.(?:png|jpg|jpeg|gif|webp|pdf|csv|txt|doc|docx))/i);
+
+        let fileSent = false;
+        let cleanResponse = aiResponse;
+
+        if (sendFileMatch && sendFileMatch[1]) {
+          let filePath = sendFileMatch[1].trim();
+          console.log('Found SEND_FILE tag with path:', filePath);
+
+          // Remove the tag from the response text (also remove surrounding newlines/spaces)
+          cleanResponse = aiResponse.replace(/\s*\[SEND_FILE:[^\]]+\]\s*/g, ' ').trim();
+          console.log('Clean response (tag removed):', cleanResponse.substring(0, 100));
+
+          // Handle macOS screenshot filenames with narrow no-break space (U+202F)
+          // macOS uses narrow no-break space before AM/PM, but Claude outputs regular space
+          if (!fs.existsSync(filePath)) {
+            // Try replacing regular space with narrow no-break space before AM/PM
+            const fixedPath = filePath.replace(/ (AM|PM)\./g, '\u202f$1.');
+            if (fs.existsSync(fixedPath)) {
+              console.log('Fixed path with narrow no-break space:', fixedPath);
+              filePath = fixedPath;
+            }
+          }
+
+          if (fs.existsSync(filePath)) {
+            console.log('Sending file to WhatsApp:', filePath);
+            const sent = await sendWhatsAppMedia(filePath, cleanResponse.substring(0, 200));
+            if (sent) {
+              console.log('File sent successfully');
+              fileSent = true;
+            }
+          } else {
+            console.log('File not found:', filePath);
+            cleanResponse = `File not found: ${filePath}\n\n${cleanResponse}`;
+          }
+        } else if (imagePathMatch && imagePathMatch[1]) {
+          const imagePath = imagePathMatch[1].trim();
+          console.log('Found image path in response:', imagePath);
+
+          if (fs.existsSync(imagePath)) {
+            console.log('Sending image to WhatsApp:', imagePath);
+            const sent = await sendWhatsAppMedia(imagePath, aiResponse.substring(0, 200));
+            if (sent) {
+              console.log('Image sent successfully');
+              fileSent = true;
+            }
+          }
+        }
+
+        // Send text response (always, unless file was sent with caption)
+        if (!fileSent) {
+          await sendWhatsAppReply(cleanResponse || aiResponse);
+        }
 
         // Emit AI response as a message to frontend (so it shows in chat)
         io.emit('message', {
@@ -617,6 +816,20 @@ io.on('connection', (socket) => {
       console.log('MCP removed successfully:', stdout);
       socket.emit('mcp-removed', { success: true, name });
     });
+  });
+
+  // Send image to WhatsApp (from file path)
+  socket.on('send-image', async ({ filePath, caption }) => {
+    console.log('Sending image to WhatsApp:', filePath);
+    const success = await sendWhatsAppMedia(filePath, caption || '');
+    socket.emit('image-sent', { success, filePath });
+  });
+
+  // Send base64 image to WhatsApp
+  socket.on('send-base64-image', async ({ base64, mimetype, caption }) => {
+    console.log('Sending base64 image to WhatsApp');
+    const success = await sendWhatsAppBase64Image(base64, mimetype || 'image/png', caption || '');
+    socket.emit('image-sent', { success });
   });
 
   socket.on('disconnect', () => {

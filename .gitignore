@@ -1,32 +1,8 @@
-# Dependencies
 node_modules/
-
-# Auth sessions
 .wwebjs_auth/
-
-# Environment
+.wwebjs_cache/
 .env
-.env.local
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Jupyter
-.ipynb_checkpoints/
-
-# Build
-dist/
-
-# Logs
 *.log
-npm-debug.log*
-
-# Temp files
-*.png
-*.jpg
-*.jpeg
+.DS_Store
+scheduler.db
+dist/
