@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import QRCode from './components/QRCode';
 import Terminal from './components/Terminal';
+import MCPManager from './components/MCPManager';
 
 const socket = io('http://localhost:3001');
 
@@ -10,6 +11,7 @@ function App() {
   const [qrCode, setQrCode] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
+  const [showMCPManager, setShowMCPManager] = useState(false);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -123,7 +125,29 @@ function App() {
         <div className="app-container qr-view">
           <h1>WhatsApp Web</h1>
           <QRCode qrCode={qrCode} isConnected={isConnected} />
+          <button
+            onClick={() => setShowMCPManager(true)}
+            style={{
+              marginTop: '20px',
+              padding: '10px 20px',
+              backgroundColor: '#2a3942',
+              border: '1px solid #404040',
+              borderRadius: '8px',
+              color: '#d4d4d4',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            MCP Manager
+          </button>
         </div>
+        {showMCPManager && (
+          <MCPManager
+            socket={socket}
+            isOpen={showMCPManager}
+            onClose={() => setShowMCPManager(false)}
+          />
+        )}
       </div>
     );
   }

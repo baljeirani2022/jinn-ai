@@ -7,6 +7,11 @@ import { spawn, exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
+
+// ESM equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Create temp directory for media files
 const mediaDir = path.join(os.tmpdir(), 'whatsapp-media');
@@ -23,7 +28,7 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: ['http://localhost:5173', 'http://localhost:5174'],
     methods: ['GET', 'POST']
   }
 });
@@ -45,6 +50,145 @@ let currentAI = 'claude'; // 'claude' or 'qwen'
 // Conversation history for Claude (to maintain context)
 let conversationHistory = [];
 const MAX_HISTORY = 20; // Keep last 20 messages for context
+
+// Scheduled file queue system
+let fileQueue = [];
+let queueInterval = null;
+let queueStatus = {
+  active: false,
+  folder: null,
+  intervalMs: 60000, // default 1 minute
+  totalFiles: 0,
+  sentFiles: 0,
+  sentList: []
+};
+
+// Function to start sending files from queue
+function startFileQueue(folderPath, intervalMs = 60000) {
+  if (queueInterval) {
+    clearInterval(queueInterval);
+  }
+
+  // Get all files from folder
+  try {
+    const files = fs.readdirSync(folderPath)
+      .filter(f => {
+        const fullPath = path.join(folderPath, f);
+        return fs.statSync(fullPath).isFile();
+      })
+      .map(f => path.join(folderPath, f));
+
+    if (files.length === 0) {
+      return { success: false, message: 'No files found in folder' };
+    }
+
+    fileQueue = [...files];
+    queueStatus = {
+      active: true,
+      folder: folderPath,
+      intervalMs,
+      totalFiles: files.length,
+      sentFiles: 0,
+      sentList: []
+    };
+
+    console.log(`File queue started: ${files.length} files, interval: ${intervalMs}ms`);
+
+    // Send first file immediately
+    sendNextQueuedFile();
+
+    // Set interval for remaining files
+    queueInterval = setInterval(() => {
+      sendNextQueuedFile();
+    }, intervalMs);
+
+    return { success: true, message: `Queued ${files.length} files to send every ${intervalMs / 1000} seconds` };
+  } catch (err) {
+    return { success: false, message: `Error: ${err.message}` };
+  }
+}
+
+// Function to send next file from queue
+async function sendNextQueuedFile() {
+  if (fileQueue.length === 0) {
+    stopFileQueue();
+    sendWhatsAppReply(`✅ Queue complete! Sent all ${queueStatus.totalFiles} files.`);
+    return;
+  }
+
+  const filePath = fileQueue.shift();
+  const fileName = path.basename(filePath);
+
+  try {
+    const sent = await sendWhatsAppMedia(filePath, `📁 [${queueStatus.sentFiles + 1}/${queueStatus.totalFiles}] ${fileName}`);
+    if (sent) {
+      queueStatus.sentFiles++;
+      queueStatus.sentList.push(fileName);
+      console.log(`Queue: Sent ${queueStatus.sentFiles}/${queueStatus.totalFiles} - ${fileName}`);
+      io.emit('queue-progress', queueStatus);
+    } else {
+      // Put back in queue and try next
+      fileQueue.unshift(filePath);
+      console.log(`Queue: Failed to send ${fileName}, will retry`);
+    }
+  } catch (err) {
+    console.error(`Queue error sending ${fileName}:`, err);
+  }
+}
+
+// Function to stop file queue
+function stopFileQueue() {
+  if (queueInterval) {
+    clearInterval(queueInterval);
+    queueInterval = null;
+  }
+  queueStatus.active = false;
+  fileQueue = [];
+  console.log('File queue stopped');
+}
+
+// Function to get queue status
+function getQueueStatus() {
+  return {
+    ...queueStatus,
+    remaining: fileQueue.length,
+    remainingFiles: fileQueue.map(f => path.basename(f))
+  };
+}
+
+// Typing indicator management
+let typingInterval = null;
+
+async function startTyping() {
+  if (!isReady || !selfChatId) return;
+
+  try {
+    const chat = await client.getChatById(selfChatId);
+    // Send typing state immediately
+    await chat.sendStateTyping();
+
+    // Keep sending typing state every 5 seconds (WhatsApp typing expires after ~25s)
+    typingInterval = setInterval(async () => {
+      try {
+        await chat.sendStateTyping();
+      } catch (err) {
+        // Ignore errors during typing
+      }
+    }, 5000);
+
+    console.log('Started typing indicator');
+  } catch (err) {
+    console.error('Failed to start typing:', err.message);
+  }
+}
+
+function stopTyping() {
+  if (typingInterval) {
+    clearInterval(typingInterval);
+    typingInterval = null;
+    console.log('Stopped typing indicator');
+  }
+}
 
 // WhatsApp event handlers
 client.on('qr', async (qr) => {
@@ -339,6 +483,69 @@ client.on('message_create', async (message) => {
         return;
       }
 
+      // Queue files command: /queue <folder> [interval_seconds]
+      if (text.toLowerCase().startsWith('/queue ')) {
+        const match = text.match(/\/queue\s+(.+?)(?:\s+(\d+))?$/i);
+        if (!match) {
+          await sendWhatsAppReply('Usage: /queue <folder_path> [interval_seconds]\nExample: /queue /Users/basim/Movies/CapCut/Theodora 60');
+          return;
+        }
+
+        const folderPath = match[1].trim();
+        const intervalSec = parseInt(match[2]) || 60; // default 60 seconds
+
+        if (!fs.existsSync(folderPath)) {
+          await sendWhatsAppReply(`❌ Folder not found: ${folderPath}`);
+          return;
+        }
+
+        if (!fs.statSync(folderPath).isDirectory()) {
+          await sendWhatsAppReply(`❌ Not a directory: ${folderPath}`);
+          return;
+        }
+
+        const result = startFileQueue(folderPath, intervalSec * 1000);
+        await sendWhatsAppReply(result.success
+          ? `✅ ${result.message}\n\nUse /queue-status to check progress\nUse /queue-stop to cancel`
+          : `❌ ${result.message}`);
+        return;
+      }
+
+      // Queue status command
+      if (text.toLowerCase() === '/queue-status') {
+        const status = getQueueStatus();
+        if (!status.active && status.totalFiles === 0) {
+          await sendWhatsAppReply('📭 No active queue. Use /queue <folder> to start.');
+          return;
+        }
+
+        const statusMsg = status.active
+          ? `📤 Queue Active\n\n` +
+            `📁 Folder: ${status.folder}\n` +
+            `⏱️ Interval: ${status.intervalMs / 1000}s\n` +
+            `✅ Sent: ${status.sentFiles}/${status.totalFiles}\n` +
+            `⏳ Remaining: ${status.remaining}\n\n` +
+            `Recent: ${status.sentList.slice(-3).join(', ')}`
+          : `📭 Queue finished. Sent ${status.sentFiles} files.`;
+
+        await sendWhatsAppReply(statusMsg);
+        return;
+      }
+
+      // Queue stop command
+      if (text.toLowerCase() === '/queue-stop') {
+        if (!queueStatus.active) {
+          await sendWhatsAppReply('📭 No active queue to stop.');
+          return;
+        }
+
+        const sent = queueStatus.sentFiles;
+        const total = queueStatus.totalFiles;
+        stopFileQueue();
+        await sendWhatsAppReply(`🛑 Queue stopped.\n\nSent ${sent}/${total} files before stopping.`);
+        return;
+      }
+
       // Send file command: /send <filepath>
       if (text.toLowerCase().startsWith('/send')) {
         const pathMatch = text.match(/\/send\s+(.+)/i);
@@ -437,8 +644,15 @@ client.on('message_create', async (message) => {
       console.log(`Processing message with ${currentAI}...`);
       io.emit('ai-processing', { prompt: text, provider: currentAI });
 
+      // Start typing indicator while AI is thinking
+      await startTyping();
+
       try {
         const aiResponse = await sendToAI(text);
+
+        // Stop typing before sending response
+        stopTyping();
+
         console.log(`${currentAI} response:`, aiResponse.substring(0, 100));
 
         // Check for [SEND_FILE:path] tag in response
@@ -513,6 +727,7 @@ client.on('message_create', async (message) => {
         // Also emit to terminal
         io.emit('ai-response', { response: aiResponse, provider: currentAI });
       } catch (err) {
+        stopTyping(); // Stop typing on error
         console.error(`${currentAI} error:`, err);
         const errorMsg = 'Error: ' + err.message;
         await sendWhatsAppReply(errorMsg);
@@ -547,7 +762,14 @@ client.on('message_create', async (message) => {
 
         io.emit('ai-processing', { prompt: `[${mediaType}] ${caption || 'Analyzing...'}`, provider: currentAI });
 
+        // Start typing while processing media
+        await startTyping();
+
         const aiResponse = await sendToAI(prompt);
+
+        // Stop typing before sending response
+        stopTyping();
+
         console.log(`${currentAI} media response:`, aiResponse.substring(0, 100));
 
         await sendWhatsAppReply(aiResponse);
@@ -563,6 +785,7 @@ client.on('message_create', async (message) => {
 
         io.emit('ai-response', { response: aiResponse, provider: currentAI });
       } catch (err) {
+        stopTyping(); // Stop typing on error
         console.error(`${currentAI} media error:`, err);
         const errorMsg = 'Error analyzing media: ' + err.message;
         await sendWhatsAppReply(errorMsg);
@@ -721,7 +944,7 @@ io.on('connection', (socket) => {
   // MCP Management handlers
   socket.on('get-mcps', () => {
     console.log('Getting MCP list...');
-    exec('/Users/basim/.local/bin/claude mcp list', { cwd: process.env.HOME, env: process.env }, (error, stdout, stderr) => {
+    exec('/Users/basim/.local/bin/claude mcp list', { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
       if (error) {
         console.error('Failed to get MCP list:', error);
         socket.emit('mcps-list', { error: error.message, mcps: [] });
@@ -769,6 +992,358 @@ io.on('connection', (socket) => {
       console.log('Found MCPs:', mcps);
       socket.emit('mcps-list', { mcps });
     });
+  });
+
+  // Get MCP details including tools
+  socket.on('get-mcp-details', ({ name }) => {
+    console.log('Getting MCP details for:', name);
+
+    if (!name) {
+      socket.emit('mcp-details', { error: 'Name is required' });
+      return;
+    }
+
+    const escapedName = name.replace(/"/g, '\\"');
+
+    // Get basic details from claude mcp get
+    exec(`/Users/basim/.local/bin/claude mcp get "${escapedName}"`, { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Failed to get MCP details:', error);
+        socket.emit('mcp-details', { name, error: error.message });
+        return;
+      }
+
+      // Parse the output
+      const details = { name, raw: stdout };
+
+      // Parse scope
+      const scopeMatch = stdout.match(/Scope:\s*(.+)/);
+      if (scopeMatch) details.scope = scopeMatch[1].trim();
+
+      // Parse status
+      const statusMatch = stdout.match(/Status:\s*(✓|✗)\s*(.+)/);
+      if (statusMatch) {
+        details.connected = statusMatch[1] === '✓';
+        details.statusText = statusMatch[2].trim();
+      }
+
+      // Parse type
+      const typeMatch = stdout.match(/Type:\s*(.+)/);
+      if (typeMatch) details.type = typeMatch[1].trim();
+
+      // Parse command
+      const commandMatch = stdout.match(/Command:\s*(.+)/);
+      if (commandMatch) details.command = commandMatch[1].trim();
+
+      // Parse args
+      const argsMatch = stdout.match(/Args:\s*(.+)/);
+      if (argsMatch) details.args = argsMatch[1].trim();
+
+      // Parse environment variables
+      const envSection = stdout.match(/Environment:\s*([\s\S]*?)(?:\n\nTo remove|$)/);
+      if (envSection) {
+        const envText = envSection[1].trim();
+        const envVars = {};
+        if (envText) {
+          // Parse each line as KEY=VALUE or KEY: VALUE
+          envText.split('\n').forEach(line => {
+            const trimmed = line.trim();
+            if (trimmed) {
+              const eqMatch = trimmed.match(/^(\w+)[=:]\s*(.*)$/);
+              if (eqMatch) {
+                envVars[eqMatch[1]] = eqMatch[2];
+              }
+            }
+          });
+        }
+        details.env = envVars;
+      } else {
+        details.env = {};
+      }
+
+      // Load tools from config file if available
+      const toolsConfigPath = path.join(process.cwd(), 'mcp-tools.json');
+      try {
+        if (fs.existsSync(toolsConfigPath)) {
+          const toolsConfig = JSON.parse(fs.readFileSync(toolsConfigPath, 'utf8'));
+          if (toolsConfig[name]) {
+            details.tools = toolsConfig[name];
+          }
+        }
+      } catch (e) {
+        console.error('Error loading tools config:', e);
+      }
+
+      console.log('MCP details:', details);
+      socket.emit('mcp-details', details);
+    });
+  });
+
+  // Update MCP configuration (env vars, etc.)
+  socket.on('update-mcp-config', ({ name, env, command, args }) => {
+    console.log('Updating MCP config for:', name, 'with command:', command);
+
+    if (!name) {
+      socket.emit('mcp-config-updated', { success: false, error: 'Name is required' });
+      return;
+    }
+
+    const escapedName = name.replace(/"/g, '\\"');
+
+    // Helper function to add MCP with env vars
+    const addMcpWithEnv = (mcpCommand, mcpArgs, scope) => {
+      // Build the add command with env vars
+      // Format: claude mcp add -e KEY=value -s scope name -- command args
+      let addCmd = `/Users/basim/.local/bin/claude mcp add`;
+
+      // Add environment variables first
+      if (env && typeof env === 'object') {
+        Object.entries(env).forEach(([key, value]) => {
+          if (key && value !== undefined && value !== '') {
+            // Use double quotes and escape special characters for shell
+            const escapedValue = String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`');
+            addCmd += ` -e ${key}="${escapedValue}"`;
+          }
+        });
+      }
+
+      // Add scope
+      addCmd += ` -s ${scope}`;
+
+      // Add the name (unquoted) and command
+      addCmd += ` ${escapedName} -- ${mcpCommand}`;
+
+      // Add args if present
+      if (mcpArgs) {
+        addCmd += ` ${mcpArgs}`;
+      }
+
+      console.log('Running add command:', addCmd);
+
+      exec(addCmd, { cwd: __dirname, env: process.env }, (addError, addStdout, addStderr) => {
+        if (addError) {
+          console.error('Failed to add MCP:', addError, addStderr);
+          socket.emit('mcp-config-updated', { success: false, error: addStderr || addError.message });
+          return;
+        }
+
+        console.log('MCP config updated successfully');
+        socket.emit('mcp-config-updated', { success: true, name });
+      });
+    };
+
+    // First, try to get the current config
+    exec(`/Users/basim/.local/bin/claude mcp get "${escapedName}"`, { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
+      let currentCommand = '';
+      let currentArgs = '';
+      let scope = 'local';
+
+      if (!error && stdout) {
+        // Parse current config
+        const commandMatch = stdout.match(/Command:\s*(.+)/);
+        currentCommand = commandMatch ? commandMatch[1].trim() : '';
+
+        const argsMatch = stdout.match(/Args:\s*(.+)/);
+        currentArgs = argsMatch ? argsMatch[1].trim() : '';
+
+        // Parse scope
+        const scopeMatch = stdout.match(/Scope:\s*(.+)/);
+        if (scopeMatch) {
+          if (scopeMatch[1].includes('User')) scope = 'user';
+          else if (scopeMatch[1].includes('Project')) scope = 'project';
+        }
+      }
+
+      // Determine command and args
+      // If frontend provides a full command string, use it directly (don't append args)
+      // If using parsed command from mcp get, also use parsed args
+      let finalCommand = '';
+      let finalArgs = '';
+
+      if (command) {
+        // Frontend provided full command - use it as-is, no separate args
+        finalCommand = command;
+        finalArgs = '';
+      } else if (currentCommand) {
+        // Use parsed command and args
+        finalCommand = currentCommand;
+        finalArgs = currentArgs;
+      }
+
+      if (!finalCommand) {
+        socket.emit('mcp-config-updated', { success: false, error: 'No command available for this MCP' });
+        return;
+      }
+
+      // Remove the existing MCP first (ignore errors if it doesn't exist)
+      exec(`/Users/basim/.local/bin/claude mcp remove "${escapedName}" -s ${scope}`, { cwd: __dirname, env: process.env }, (removeError) => {
+        if (removeError) {
+          console.log('MCP remove skipped (may not exist):', removeError.message);
+        }
+
+        addMcpWithEnv(finalCommand, finalArgs, scope);
+      });
+    });
+  });
+
+  // Save MCP tools configuration
+  socket.on('save-mcp-tools', ({ name, tools }) => {
+    console.log('Saving MCP tools for:', name);
+
+    const toolsConfigPath = path.join(process.cwd(), 'mcp-tools.json');
+    let toolsConfig = {};
+
+    try {
+      if (fs.existsSync(toolsConfigPath)) {
+        toolsConfig = JSON.parse(fs.readFileSync(toolsConfigPath, 'utf8'));
+      }
+
+      toolsConfig[name] = tools;
+      fs.writeFileSync(toolsConfigPath, JSON.stringify(toolsConfig, null, 2));
+
+      socket.emit('mcp-tools-saved', { success: true, name });
+    } catch (e) {
+      console.error('Error saving tools config:', e);
+      socket.emit('mcp-tools-saved', { success: false, error: e.message });
+    }
+  });
+
+  // Helper function to get and emit MCP permissions
+  const emitMcpPermissions = () => {
+    const permissionsPath = path.join(process.env.HOME, '.claude', 'settings.local.json');
+
+    try {
+      if (fs.existsSync(permissionsPath)) {
+        const settings = JSON.parse(fs.readFileSync(permissionsPath, 'utf8'));
+        const permissions = settings.permissions || { allow: [], deny: [], ask: [] };
+
+        // Parse permissions to extract MCP-specific ones
+        const mcpPermissions = {
+          allow: [],
+          deny: [],
+          ask: []
+        };
+
+        // Process each permission type
+        ['allow', 'deny', 'ask'].forEach(type => {
+          (permissions[type] || []).forEach(perm => {
+            if (perm.startsWith('mcp__')) {
+              // Extract MCP name and tool
+              const match = perm.match(/^mcp__([^_]+)__(.+)$/);
+              if (match) {
+                mcpPermissions[type].push({
+                  mcp: match[1],
+                  tool: match[2],
+                  raw: perm
+                });
+              }
+            }
+          });
+        });
+
+        socket.emit('mcp-permissions', { permissions: mcpPermissions });
+      } else {
+        socket.emit('mcp-permissions', { permissions: { allow: [], deny: [], ask: [] } });
+      }
+    } catch (e) {
+      console.error('Error reading permissions:', e);
+      socket.emit('mcp-permissions', { error: e.message });
+    }
+  };
+
+  // Get MCP permissions
+  socket.on('get-mcp-permissions', () => {
+    console.log('Getting MCP permissions...');
+    emitMcpPermissions();
+  });
+
+  // Update MCP tool permission
+  socket.on('update-mcp-permission', ({ mcp, tool, action }) => {
+    console.log('Updating MCP permission:', mcp, tool, action);
+
+    const permissionsPath = path.join(process.env.HOME, '.claude', 'settings.local.json');
+    const permString = `mcp__${mcp}__${tool}`;
+
+    try {
+      let settings = {};
+      if (fs.existsSync(permissionsPath)) {
+        settings = JSON.parse(fs.readFileSync(permissionsPath, 'utf8'));
+      }
+
+      if (!settings.permissions) {
+        settings.permissions = { allow: [], deny: [], ask: [] };
+      }
+
+      // Remove from all lists first
+      ['allow', 'deny', 'ask'].forEach(type => {
+        if (!settings.permissions[type]) settings.permissions[type] = [];
+        settings.permissions[type] = settings.permissions[type].filter(p => p !== permString);
+      });
+
+      // Add to the appropriate list based on action
+      if (action === 'allow') {
+        settings.permissions.allow.push(permString);
+      } else if (action === 'deny') {
+        settings.permissions.deny.push(permString);
+      }
+      // If action is 'default', we just remove it from all lists (already done above)
+
+      // Write back to file
+      fs.writeFileSync(permissionsPath, JSON.stringify(settings, null, 2));
+
+      console.log('Permission updated successfully');
+      socket.emit('mcp-permission-updated', { success: true, mcp, tool, action });
+
+      // Send updated permissions
+      emitMcpPermissions();
+    } catch (e) {
+      console.error('Error updating permission:', e);
+      socket.emit('mcp-permission-updated', { success: false, error: e.message });
+    }
+  });
+
+  // Update all tools for an MCP (wildcard)
+  socket.on('update-mcp-all-permissions', ({ mcp, action }) => {
+    console.log('Updating all MCP permissions:', mcp, action);
+
+    const permissionsPath = path.join(process.env.HOME, '.claude', 'settings.local.json');
+    const wildcardPerm = `mcp__${mcp}__*`;
+
+    try {
+      let settings = {};
+      if (fs.existsSync(permissionsPath)) {
+        settings = JSON.parse(fs.readFileSync(permissionsPath, 'utf8'));
+      }
+
+      if (!settings.permissions) {
+        settings.permissions = { allow: [], deny: [], ask: [] };
+      }
+
+      // Remove wildcard from all lists first
+      ['allow', 'deny', 'ask'].forEach(type => {
+        if (!settings.permissions[type]) settings.permissions[type] = [];
+        settings.permissions[type] = settings.permissions[type].filter(p => p !== wildcardPerm);
+      });
+
+      // Add wildcard to the appropriate list
+      if (action === 'allow') {
+        settings.permissions.allow.push(wildcardPerm);
+      } else if (action === 'deny') {
+        settings.permissions.deny.push(wildcardPerm);
+      }
+
+      // Write back to file
+      fs.writeFileSync(permissionsPath, JSON.stringify(settings, null, 2));
+
+      console.log('All permissions updated successfully');
+      socket.emit('mcp-permission-updated', { success: true, mcp, tool: '*', action });
+
+      // Send updated permissions
+      emitMcpPermissions();
+    } catch (e) {
+      console.error('Error updating permissions:', e);
+      socket.emit('mcp-permission-updated', { success: false, error: e.message });
+    }
   });
 
   socket.on('add-mcp', ({ name, command }) => {
