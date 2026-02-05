@@ -1,0 +1,886 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, sans-serif;
+  background-color: #111b21;
+  color: #e9edef;
+}
+
+.app {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Split Layout */
+.split-container {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+}
+
+.split-left {
+  flex: 1;
+  display: flex;
+  background-color: #1e1e1e;
+}
+
+.split-right {
+  flex: 1;
+  display: flex;
+  background-color: #111b21;
+}
+
+/* Terminal Styles */
+.terminal {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: #1e1e1e;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: #323232;
+  border-bottom: 1px solid #404040;
+}
+
+.terminal-buttons {
+  display: flex;
+  gap: 8px;
+  margin-right: 16px;
+}
+
+.terminal-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.terminal-btn.red {
+  background-color: #ff5f56;
+}
+
+.terminal-btn.yellow {
+  background-color: #ffbd2e;
+}
+
+.terminal-btn.green {
+  background-color: #27ca40;
+}
+
+.terminal-title {
+  color: #888;
+  font-size: 13px;
+}
+
+.terminal-body {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  color: #d4d4d4;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.terminal-welcome {
+  margin-bottom: 20px;
+  color: #569cd6;
+}
+
+.terminal-welcome p {
+  margin: 0;
+}
+
+.terminal-subtitle {
+  color: #6a9955 !important;
+  font-size: 12px;
+  margin-top: 4px !important;
+}
+
+.terminal-line {
+  margin-bottom: 8px;
+  word-wrap: break-word;
+}
+
+.terminal-prompt {
+  color: #dcdcaa;
+  margin-right: 8px;
+}
+
+.terminal-command {
+  color: #ce9178;
+}
+
+.terminal-cursor {
+  color: #d4d4d4;
+  animation: blink 1s step-end infinite;
+}
+
+.terminal-cursor.blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.terminal-system {
+  color: #569cd6;
+}
+
+.terminal-user-prompt {
+  color: #4ec9b0;
+  margin-right: 8px;
+}
+
+.terminal-user-input {
+  color: #9cdcfe;
+}
+
+.terminal-response {
+  color: #6a9955;
+}
+
+.terminal-input-line {
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.terminal-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #9cdcfe;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 14px;
+  caret-color: #d4d4d4;
+}
+
+.terminal-input::placeholder {
+  color: #6a6a6a;
+}
+
+.terminal-input:disabled {
+  opacity: 0.5;
+}
+
+.terminal-claude-prompt,
+.terminal-qwen-prompt {
+  color: #c586c0;
+  margin-right: 8px;
+}
+
+.terminal-claude-response,
+.terminal-qwen-response {
+  color: #d4d4d4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.terminal-whatsapp-prompt {
+  color: #25d366;
+  margin-right: 8px;
+}
+
+.terminal-whatsapp-text {
+  color: #98c379;
+}
+
+.terminal-error {
+  color: #f44747;
+}
+
+.terminal-waiting {
+  color: #888;
+  font-style: italic;
+}
+
+.terminal-waiting .dots {
+  animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0%, 20% { content: ''; }
+  40% { content: '.'; }
+  60% { content: '..'; }
+  80%, 100% { content: '...'; }
+}
+
+.app-container {
+  width: 100%;
+  max-width: 1200px;
+  height: 100vh;
+  background-color: #222e35;
+}
+
+/* QR View Styles */
+.app-container.qr-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: 500px;
+  border-radius: 8px;
+  padding: 40px;
+  height: auto;
+}
+
+.app-container.qr-view h1 {
+  color: #25d366;
+  margin-bottom: 30px;
+}
+
+.qr-container {
+  text-align: center;
+}
+
+.qr-container.connected {
+  color: #25d366;
+}
+
+.connected-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.qr-image {
+  width: 264px;
+  height: 264px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.qr-container p {
+  margin-bottom: 10px;
+  color: #8696a0;
+}
+
+.qr-instructions {
+  font-size: 12px;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #2a3942;
+  border-top-color: #25d366;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Chat App Layout */
+.app-container.chat-app {
+  display: flex;
+  border-radius: 0;
+}
+
+/* Self Chat Layout */
+.app-container.self-chat {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.chat-header {
+  padding: 16px 20px;
+  background-color: #202c33;
+  border-bottom: 1px solid #2a3942;
+}
+
+.chat-header h2 {
+  font-size: 18px;
+  font-weight: 500;
+  color: #e9edef;
+}
+
+.empty-messages {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  color: #8696a0;
+}
+
+/* Chat List Styles */
+.chat-list {
+  width: 350px;
+  border-right: 1px solid #2a3942;
+  display: flex;
+  flex-direction: column;
+  background-color: #111b21;
+}
+
+.chat-list-header {
+  padding: 16px;
+  background-color: #202c33;
+}
+
+.chat-list-header h2 {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.chat-list-items {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.no-chats {
+  padding: 20px;
+  text-align: center;
+  color: #8696a0;
+}
+
+.chat-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #2a3942;
+  transition: background-color 0.2s;
+}
+
+.chat-item:hover {
+  background-color: #2a3942;
+}
+
+.chat-item.selected {
+  background-color: #2a3942;
+}
+
+.chat-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: #2a3942;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.chat-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.chat-name {
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-time {
+  font-size: 12px;
+  color: #8696a0;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.chat-last-message {
+  font-size: 14px;
+  color: #8696a0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unread-badge {
+  background-color: #25d366;
+  color: #111b21;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+
+/* Chat View Styles */
+.chat-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #0b141a;
+}
+
+.chat-view.empty {
+  justify-content: center;
+  align-items: center;
+}
+
+.empty-chat {
+  text-align: center;
+  color: #8696a0;
+}
+
+.chat-view-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: #202c33;
+}
+
+.chat-header-info {
+  margin-left: 12px;
+}
+
+.chat-header-name {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0L60 30L30 60L0 30z' fill='%23182229' fill-opacity='0.3'/%3E%3C/svg%3E");
+}
+
+.message {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.message.sent {
+  justify-content: flex-end;
+}
+
+.message.received {
+  justify-content: flex-start;
+}
+
+.message-content {
+  max-width: 65%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  position: relative;
+}
+
+.message.sent .message-content {
+  background-color: #005c4b;
+  border-top-right-radius: 0;
+}
+
+.message.received .message-content {
+  background-color: #202c33;
+  border-top-left-radius: 0;
+}
+
+.message-text {
+  font-size: 14px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  margin-bottom: 4px;
+}
+
+.message-time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  float: right;
+  margin-top: 4px;
+}
+
+/* Message Input */
+.message-input-form {
+  display: flex;
+  padding: 12px 16px;
+  background-color: #202c33;
+  gap: 12px;
+}
+
+.message-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 8px;
+  background-color: #2a3942;
+  color: #e9edef;
+  font-size: 14px;
+  outline: none;
+}
+
+.message-input::placeholder {
+  color: #8696a0;
+}
+
+.send-button {
+  padding: 12px 24px;
+  background-color: #25d366;
+  color: #111b21;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.send-button:hover {
+  background-color: #1da851;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #374045;
+  border-radius: 3px;
+}
+
+/* Media Styles */
+.media-image {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.media-video {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.media-audio {
+  width: 100%;
+  max-width: 280px;
+  margin-bottom: 8px;
+}
+
+.media-audio::-webkit-media-controls-panel {
+  background-color: #2a3942;
+}
+
+.media-unsupported {
+  color: #8696a0;
+  font-style: italic;
+  margin-bottom: 8px;
+}
+
+/* Terminal Settings Button */
+.terminal-settings-btn {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.terminal-settings-btn:hover {
+  color: #d4d4d4;
+  background-color: #404040;
+}
+
+/* MCP Manager Modal */
+.mcp-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.mcp-modal {
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #404040;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.mcp-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #404040;
+}
+
+.mcp-modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #d4d4d4;
+  font-weight: 500;
+}
+
+.mcp-close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.mcp-close-btn:hover {
+  color: #d4d4d4;
+}
+
+.mcp-modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.mcp-loading,
+.mcp-empty {
+  text-align: center;
+  color: #888;
+  padding: 20px;
+}
+
+.mcp-error {
+  background-color: rgba(244, 71, 71, 0.1);
+  border: 1px solid #f44747;
+  color: #f44747;
+  padding: 10px 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.mcp-list {
+  margin-bottom: 20px;
+}
+
+.mcp-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px;
+  background-color: #2d2d2d;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.mcp-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mcp-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.mcp-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mcp-status-dot.configured {
+  background-color: #27ca40;
+}
+
+.mcp-status-dot.connected {
+  background-color: #27ca40;
+}
+
+.mcp-status-dot.error {
+  background-color: #f44747;
+}
+
+.mcp-status-dot.disabled {
+  background-color: #888;
+}
+
+.mcp-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #d4d4d4;
+}
+
+.mcp-status-text {
+  font-size: 11px;
+  margin-left: 8px;
+}
+
+.mcp-status-text.connected {
+  color: #27ca40;
+}
+
+.mcp-status-text.error {
+  color: #f44747;
+}
+
+.mcp-item-command {
+  font-size: 12px;
+  color: #888;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  word-break: break-all;
+  margin-top: 4px;
+}
+
+.mcp-item-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.mcp-delete-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.mcp-delete-btn:hover {
+  color: #f44747;
+  background-color: rgba(244, 71, 71, 0.1);
+}
+
+/* MCP Add Form */
+.mcp-add-section {
+  border-top: 1px solid #404040;
+  padding-top: 16px;
+}
+
+.mcp-add-section h3 {
+  font-size: 14px;
+  font-weight: 500;
+  color: #d4d4d4;
+  margin: 0 0 12px 0;
+}
+
+.mcp-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mcp-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mcp-form-group label {
+  font-size: 12px;
+  color: #888;
+}
+
+.mcp-input {
+  background-color: #2d2d2d;
+  border: 1px solid #404040;
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: #d4d4d4;
+  font-size: 14px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.mcp-input:focus {
+  border-color: #569cd6;
+}
+
+.mcp-input::placeholder {
+  color: #6a6a6a;
+}
+
+.mcp-input:disabled {
+  opacity: 0.5;
+}
+
+.mcp-add-btn {
+  background-color: #569cd6;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 16px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  align-self: flex-end;
+}
+
+.mcp-add-btn:hover:not(:disabled) {
+  background-color: #4a8bc9;
+}
+
+.mcp-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
