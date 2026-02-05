@@ -4,8 +4,7 @@ import MCPManager from './MCPManager';
 function Terminal({ socket, messages }) {
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
   const [output, setOutput] = useState([
-    { type: 'system', text: 'AI Terminal - WhatsApp messages go to AI automatically' },
-    { type: 'system', text: 'WhatsApp commands: /claude, /qwen, /status' }
+    { type: 'system', text: 'AI Terminal - WhatsApp messages go to Claude automatically' }
   ]);
   const [currentProvider, setCurrentProvider] = useState('claude');
   const [input, setInput] = useState('');
@@ -193,7 +192,7 @@ function Terminal({ socket, messages }) {
             )}
             {line.type === 'whatsapp-prompt' && (
               <>
-                <span className="terminal-whatsapp-prompt">[WhatsApp → Qwen]</span>
+                <span className="terminal-whatsapp-prompt">[WhatsApp → {(line.provider || currentProvider).toUpperCase()}]</span>
                 <span className="terminal-whatsapp-text">{line.text}</span>
               </>
             )}

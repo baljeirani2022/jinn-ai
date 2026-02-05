@@ -276,7 +276,7 @@ After outputting the file path, you can add a brief description. Do NOT just des
 
       // Use exec for Claude - redirect stdin from /dev/null, add media directory access
       const escapedPrompt = fullPrompt.replace(/"/g, '\\"').replace(/`/g, '\\`').replace(/\$/g, '\\$').replace(/\n/g, '\\n');
-      const cmd = `/Users/basim/.local/bin/claude --add-dir "${mediaDir}" -p "${escapedPrompt}" < /dev/null`;
+      const cmd = `/home/basim/.npm-global/bin/claude --dangerously-skip-permissions --add-dir "${mediaDir}" -p "${escapedPrompt}" < /dev/null`;
       console.log('Claude command length:', cmd.length);
 
       exec(cmd, { cwd: process.env.HOME, env: process.env, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -749,21 +749,65 @@ client.on('message_create', async (message) => {
         const filePath = saveMediaFile(msgData.media, message.id._serialized.replace(/[^a-zA-Z0-9]/g, '_'));
         const mediaType = getMediaTypeDescription(msgData.media.mimetype);
         const caption = message.body || '';
+        const isVoiceMessage = msgData.media.mimetype.startsWith('audio/');
 
         console.log(`Processing ${mediaType} with ${currentAI}...`);
 
-        // Build prompt for media analysis
-        let prompt;
-        if (caption) {
-          prompt = `The user sent a ${mediaType} with the caption: "${caption}"\n\nThe file is saved at: ${filePath}\n\nPlease read/analyze this file and respond to the user's request.`;
-        } else {
-          prompt = `The user sent a ${mediaType}.\n\nThe file is saved at: ${filePath}\n\nPlease analyze this file and describe what you see/find.`;
-        }
-
-        io.emit('ai-processing', { prompt: `[${mediaType}] ${caption || 'Analyzing...'}`, provider: currentAI });
-
         // Start typing while processing media
         await startTyping();
+
+        let prompt;
+
+        // Handle voice messages - transcribe first
+        if (isVoiceMessage) {
+          console.log('Voice message detected, transcribing with Whisper...');
+          io.emit('ai-processing', { prompt: '[Voice] Transcribing...', provider: currentAI });
+
+          try {
+            // Transcribe using Whisper
+            const transcription = await new Promise((resolve, reject) => {
+              exec(`whisper "${filePath}" --model base --output_format txt --output_dir "${mediaDir}" --language ar`,
+                { timeout: 120000 },
+                (error, stdout, stderr) => {
+                  if (error) {
+                    console.error('Whisper error:', stderr);
+                    reject(new Error('Failed to transcribe audio'));
+                    return;
+                  }
+                  // Read the transcription file
+                  const txtPath = filePath.replace(/\.[^.]+$/, '.txt');
+                  if (fs.existsSync(txtPath)) {
+                    const text = fs.readFileSync(txtPath, 'utf8').trim();
+                    resolve(text);
+                  } else {
+                    reject(new Error('Transcription file not found'));
+                  }
+                });
+            });
+
+            console.log('Transcription:', transcription);
+            io.emit('ai-processing', { prompt: `[Voice] "${transcription}"`, provider: currentAI });
+
+            // Send transcribed text to AI for processing
+            prompt = `The user sent a voice message. Here is the transcription:\n\n"${transcription}"\n\nPlease respond to their request or question.`;
+            if (caption) {
+              prompt = `The user sent a voice message with caption "${caption}". Here is the transcription:\n\n"${transcription}"\n\nPlease respond to their request.`;
+            }
+          } catch (transcribeErr) {
+            console.error('Transcription failed:', transcribeErr);
+            stopTyping();
+            await sendWhatsAppReply('Sorry, I could not transcribe the voice message. Please try again or send text.');
+            return;
+          }
+        } else {
+          // Build prompt for other media (images, videos, etc.)
+          if (caption) {
+            prompt = `The user sent a ${mediaType} with the caption: "${caption}"\n\nThe file is saved at: ${filePath}\n\nPlease read/analyze this file and respond to the user's request.`;
+          } else {
+            prompt = `The user sent a ${mediaType}.\n\nThe file is saved at: ${filePath}\n\nPlease analyze this file and describe what you see/find.`;
+          }
+          io.emit('ai-processing', { prompt: `[${mediaType}] ${caption || 'Analyzing...'}`, provider: currentAI });
+        }
 
         const aiResponse = await sendToAI(prompt);
 
@@ -892,7 +936,7 @@ io.on('connection', (socket) => {
       if (currentAI === 'claude') {
         // Use exec for Claude - redirect stdin from /dev/null
         const escapedMsg = message.replace(/"/g, '\\"').replace(/`/g, '\\`').replace(/\$/g, '\\$');
-        const cmd = `/Users/basim/.local/bin/claude -p "${escapedMsg}" < /dev/null`;
+        const cmd = `/home/basim/.npm-global/bin/claude --dangerously-skip-permissions -p "${escapedMsg}" < /dev/null`;
 
         exec(cmd, { cwd: process.env.HOME, env: process.env, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
           console.log('Claude terminal exec finished, stdout:', stdout?.length);
@@ -944,7 +988,7 @@ io.on('connection', (socket) => {
   // MCP Management handlers
   socket.on('get-mcps', () => {
     console.log('Getting MCP list...');
-    exec('/Users/basim/.local/bin/claude mcp list', { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
+    exec('/home/basim/.npm-global/bin/claude mcp list', { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
       if (error) {
         console.error('Failed to get MCP list:', error);
         socket.emit('mcps-list', { error: error.message, mcps: [] });
@@ -1006,7 +1050,7 @@ io.on('connection', (socket) => {
     const escapedName = name.replace(/"/g, '\\"');
 
     // Get basic details from claude mcp get
-    exec(`/Users/basim/.local/bin/claude mcp get "${escapedName}"`, { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
+    exec(`/home/basim/.npm-global/bin/claude mcp get "${escapedName}"`, { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
       if (error) {
         console.error('Failed to get MCP details:', error);
         socket.emit('mcp-details', { name, error: error.message });
@@ -1094,7 +1138,7 @@ io.on('connection', (socket) => {
     const addMcpWithEnv = (mcpCommand, mcpArgs, scope) => {
       // Build the add command with env vars
       // Format: claude mcp add -e KEY=value -s scope name -- command args
-      let addCmd = `/Users/basim/.local/bin/claude mcp add`;
+      let addCmd = `/home/basim/.npm-global/bin/claude mcp add`;
 
       // Add environment variables first
       if (env && typeof env === 'object') {
@@ -1133,7 +1177,7 @@ io.on('connection', (socket) => {
     };
 
     // First, try to get the current config
-    exec(`/Users/basim/.local/bin/claude mcp get "${escapedName}"`, { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
+    exec(`/home/basim/.npm-global/bin/claude mcp get "${escapedName}"`, { cwd: __dirname, env: process.env }, (error, stdout, stderr) => {
       let currentCommand = '';
       let currentArgs = '';
       let scope = 'local';
@@ -1176,7 +1220,7 @@ io.on('connection', (socket) => {
       }
 
       // Remove the existing MCP first (ignore errors if it doesn't exist)
-      exec(`/Users/basim/.local/bin/claude mcp remove "${escapedName}" -s ${scope}`, { cwd: __dirname, env: process.env }, (removeError) => {
+      exec(`/home/basim/.npm-global/bin/claude mcp remove "${escapedName}" -s ${scope}`, { cwd: __dirname, env: process.env }, (removeError) => {
         if (removeError) {
           console.log('MCP remove skipped (may not exist):', removeError.message);
         }
@@ -1205,6 +1249,78 @@ io.on('connection', (socket) => {
     } catch (e) {
       console.error('Error saving tools config:', e);
       socket.emit('mcp-tools-saved', { success: false, error: e.message });
+    }
+  });
+
+  // Get full MCP JSON configuration
+  socket.on('get-mcp-json-config', () => {
+    console.log('Getting MCP JSON config...');
+    const claudeJsonPath = path.join(process.env.HOME, '.claude.json');
+
+    try {
+      if (fs.existsSync(claudeJsonPath)) {
+        const claudeConfig = JSON.parse(fs.readFileSync(claudeJsonPath, 'utf8'));
+
+        // Merge user-level and project-level mcpServers
+        let mcpServers = { ...(claudeConfig.mcpServers || {}) };
+
+        // Also check project-specific configs
+        if (claudeConfig.projects) {
+          for (const projectPath of Object.keys(claudeConfig.projects)) {
+            const projectMcps = claudeConfig.projects[projectPath]?.mcpServers || {};
+            // Project MCPs take precedence
+            mcpServers = { ...mcpServers, ...projectMcps };
+          }
+        }
+
+        socket.emit('mcp-json-config', { config: { mcpServers } });
+      } else {
+        socket.emit('mcp-json-config', { config: { mcpServers: {} } });
+      }
+    } catch (e) {
+      console.error('Error reading MCP JSON config:', e);
+      socket.emit('mcp-json-config', { error: e.message });
+    }
+  });
+
+  // Save full MCP JSON configuration
+  socket.on('save-mcp-json-config', async ({ config }) => {
+    console.log('Saving MCP JSON config...');
+    const claudeJsonPath = path.join(process.env.HOME, '.claude.json');
+
+    try {
+      // Validate config structure
+      if (!config || !config.mcpServers) {
+        socket.emit('mcp-json-config-saved', { success: false, error: 'Invalid config: mcpServers required' });
+        return;
+      }
+
+      // Read existing config
+      let existingConfig = {};
+      if (fs.existsSync(claudeJsonPath)) {
+        existingConfig = JSON.parse(fs.readFileSync(claudeJsonPath, 'utf8'));
+      }
+
+      // Save to user-level mcpServers
+      existingConfig.mcpServers = config.mcpServers;
+
+      // Also save to project-level mcpServers (for active projects)
+      if (existingConfig.projects) {
+        for (const projectPath of Object.keys(existingConfig.projects)) {
+          if (existingConfig.projects[projectPath].mcpServers) {
+            existingConfig.projects[projectPath].mcpServers = config.mcpServers;
+          }
+        }
+      }
+
+      // Write back
+      fs.writeFileSync(claudeJsonPath, JSON.stringify(existingConfig, null, 2));
+      console.log('MCP JSON config saved to all locations');
+
+      socket.emit('mcp-json-config-saved', { success: true });
+    } catch (e) {
+      console.error('Error saving MCP JSON config:', e);
+      socket.emit('mcp-json-config-saved', { success: false, error: e.message });
     }
   });
 
@@ -1356,7 +1472,7 @@ io.on('connection', (socket) => {
 
     // Escape the command for shell
     const escapedName = name.replace(/"/g, '\\"');
-    const cmd = `/Users/basim/.local/bin/claude mcp add "${escapedName}" -- ${command}`;
+    const cmd = `/home/basim/.npm-global/bin/claude mcp add "${escapedName}" -- ${command}`;
 
     exec(cmd, { cwd: process.env.HOME, env: process.env }, (error, stdout, stderr) => {
       if (error) {
@@ -1379,7 +1495,7 @@ io.on('connection', (socket) => {
     }
 
     const escapedName = name.replace(/"/g, '\\"');
-    const cmd = `/Users/basim/.local/bin/claude mcp remove "${escapedName}"`;
+    const cmd = `/home/basim/.npm-global/bin/claude mcp remove "${escapedName}"`;
 
     exec(cmd, { cwd: process.env.HOME, env: process.env }, (error, stdout, stderr) => {
       if (error) {

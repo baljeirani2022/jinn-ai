@@ -1410,3 +1410,120 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* MCP View Toggle */
+.mcp-view-toggle {
+  display: flex;
+  gap: 4px;
+  margin-right: auto;
+  margin-left: 16px;
+}
+
+.mcp-view-btn {
+  padding: 6px 12px;
+  border: 1px solid #404040;
+  border-radius: 4px;
+  background: #2d2d2d;
+  color: #888;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.mcp-view-btn:hover {
+  background: #363636;
+}
+
+.mcp-view-btn.active {
+  background: #569cd6;
+  border-color: #569cd6;
+  color: white;
+}
+
+/* MCP JSON Editor */
+.mcp-json-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 12px;
+}
+
+.mcp-json-hint {
+  font-size: 12px;
+  color: #888;
+  padding: 8px 12px;
+  background: #252526;
+  border-radius: 4px;
+  border-left: 3px solid #569cd6;
+}
+
+.mcp-json-hint code {
+  display: block;
+  margin-top: 8px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  color: #ce9178;
+  word-break: break-all;
+}
+
+.mcp-json-textarea {
+  flex: 1;
+  min-height: 300px;
+  padding: 12px;
+  border: 1px solid #404040;
+  border-radius: 4px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.mcp-json-textarea:focus {
+  outline: none;
+  border-color: #569cd6;
+}
+
+.mcp-json-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mcp-json-save-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  background: #27ca40;
+  color: white;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.mcp-json-save-btn:hover:not(:disabled) {
+  background: #22b339;
+}
+
+.mcp-json-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mcp-json-refresh-btn {
+  padding: 8px 16px;
+  border: 1px solid #404040;
+  border-radius: 4px;
+  background: #2d2d2d;
+  color: #d4d4d4;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.mcp-json-refresh-btn:hover {
+  background: #363636;
+}

@@ -17,14 +17,27 @@ function MCPManager({ socket, isOpen, onClose }) {
   const [newEnvKey, setNewEnvKey] = useState('');
   const [newEnvValue, setNewEnvValue] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
+  const [viewMode, setViewMode] = useState('form'); // 'form' or 'json'
+  const [jsonConfig, setJsonConfig] = useState('');
+  const [jsonError, setJsonError] = useState(null);
+  const [savingJson, setSavingJson] = useState(false);
 
   // Fetch MCPs when modal opens
   useEffect(() => {
     if (isOpen && socket) {
       fetchMCPs();
       fetchPermissions();
+      fetchJsonConfig();
     }
   }, [isOpen, socket]);
+
+  // Fetch full JSON config
+  const fetchJsonConfig = () => {
+    socket?.emit('get-mcp-json-config');
+  };
+
+  // Only fetch JSON from file when switching to JSON view - don't rebuild from MCPs
+  // This ensures we get the actual saved config including env vars
 
   // Socket event listeners
   useEffect(() => {
@@ -100,6 +113,26 @@ function MCPManager({ socket, isOpen, onClose }) {
       }
     };
 
+    const handleJsonConfig = ({ config, error: err }) => {
+      if (err) {
+        setJsonError(err);
+      } else if (config) {
+        setJsonConfig(JSON.stringify(config, null, 2));
+        setJsonError(null);
+      }
+    };
+
+    const handleJsonConfigSaved = ({ success, error: err }) => {
+      setSavingJson(false);
+      if (success) {
+        setJsonError(null);
+        fetchMCPs();
+        fetchJsonConfig();
+      } else {
+        setJsonError(err || 'Failed to save JSON config');
+      }
+    };
+
     socket.on('mcps-list', handleMCPsList);
     socket.on('mcp-added', handleMCPAdded);
     socket.on('mcp-removed', handleMCPRemoved);
@@ -107,6 +140,8 @@ function MCPManager({ socket, isOpen, onClose }) {
     socket.on('mcp-permissions', handleMCPPermissions);
     socket.on('mcp-permission-updated', handlePermissionUpdated);
     socket.on('mcp-config-updated', handleConfigUpdated);
+    socket.on('mcp-json-config', handleJsonConfig);
+    socket.on('mcp-json-config-saved', handleJsonConfigSaved);
 
     return () => {
       socket.off('mcps-list', handleMCPsList);
@@ -116,6 +151,8 @@ function MCPManager({ socket, isOpen, onClose }) {
       socket.off('mcp-permissions', handleMCPPermissions);
       socket.off('mcp-permission-updated', handlePermissionUpdated);
       socket.off('mcp-config-updated', handleConfigUpdated);
+      socket.off('mcp-json-config', handleJsonConfig);
+      socket.off('mcp-json-config-saved', handleJsonConfigSaved);
     };
   }, [socket, envEdits]);
 
@@ -226,6 +263,32 @@ function MCPManager({ socket, isOpen, onClose }) {
     });
   };
 
+  const handleJsonChange = (e) => {
+    setJsonConfig(e.target.value);
+    setJsonError(null);
+    // Validate JSON
+    try {
+      JSON.parse(e.target.value);
+    } catch (err) {
+      setJsonError('Invalid JSON: ' + err.message);
+    }
+  };
+
+  const saveJsonConfig = () => {
+    try {
+      const config = JSON.parse(jsonConfig);
+      if (!config.mcpServers) {
+        setJsonError('JSON must contain "mcpServers" object');
+        return;
+      }
+      setSavingJson(true);
+      setJsonError(null);
+      socket?.emit('save-mcp-json-config', { config });
+    } catch (err) {
+      setJsonError('Invalid JSON: ' + err.message);
+    }
+  };
+
   // Get permission status for a tool
   const getToolPermission = (mcpName, toolName) => {
     const wildcardAllow = permissions.allow.find(p => p.mcp === mcpName && p.tool === '*');
@@ -271,15 +334,62 @@ function MCPManager({ socket, isOpen, onClose }) {
       <div className="mcp-modal mcp-modal-large" onClick={(e) => e.stopPropagation()}>
         <div className="mcp-modal-header">
           <h2>MCP Servers</h2>
+          <div className="mcp-view-toggle">
+            <button
+              className={`mcp-view-btn ${viewMode === 'form' ? 'active' : ''}`}
+              onClick={() => setViewMode('form')}
+            >
+              Form
+            </button>
+            <button
+              className={`mcp-view-btn ${viewMode === 'json' ? 'active' : ''}`}
+              onClick={() => { setViewMode('json'); fetchJsonConfig(); }}
+            >
+              JSON
+            </button>
+          </div>
           <button className="mcp-close-btn" onClick={onClose}>&times;</button>
         </div>
 
         <div className="mcp-modal-body">
-          {loading && <div className="mcp-loading">Loading MCP servers...</div>}
           {error && <div className="mcp-error">{error}</div>}
-          {!loading && mcps.length === 0 && !error && (
-            <div className="mcp-empty">No MCP servers configured</div>
-          )}
+
+          {viewMode === 'json' ? (
+            <div className="mcp-json-editor">
+              <div className="mcp-json-hint">
+                Edit MCP configuration as JSON. Format:
+                <code>{`{ "mcpServers": { "name": { "command": "npx", "args": [...], "env": {...} } } }`}</code>
+              </div>
+              {jsonError && <div className="mcp-error">{jsonError}</div>}
+              <textarea
+                className="mcp-json-textarea"
+                value={jsonConfig}
+                onChange={handleJsonChange}
+                placeholder='{"mcpServers": {}}'
+                spellCheck={false}
+              />
+              <div className="mcp-json-actions">
+                <button
+                  className="mcp-json-save-btn"
+                  onClick={saveJsonConfig}
+                  disabled={savingJson || !!jsonError}
+                >
+                  {savingJson ? 'Saving...' : 'Save Configuration'}
+                </button>
+                <button
+                  className="mcp-json-refresh-btn"
+                  onClick={fetchJsonConfig}
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {loading && <div className="mcp-loading">Loading MCP servers...</div>}
+              {!loading && mcps.length === 0 && !error && (
+                <div className="mcp-empty">No MCP servers configured</div>
+              )}
 
           <div className="mcp-list">
             {mcps.map((mcp) => {
@@ -543,6 +653,8 @@ function MCPManager({ socket, isOpen, onClose }) {
               </button>
             </form>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>
